@@ -12,6 +12,7 @@
         <a class="nav-link" href="{{ route('satuan.index') }}">Satuan</a>
         {{-- tambah link menu baru di sini setiap selesai satu CRUD --}}
         <a class="nav-link" href="{{ route('role.index') }}">Role</a>
+        <a class="nav-link" href="{{ route('barang.index') }}">Barang</a>
       </div>
     </div>
   </nav>
