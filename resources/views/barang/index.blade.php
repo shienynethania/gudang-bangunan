@@ -19,11 +19,11 @@
   @foreach($data as $d)
   <tr>
     <td>{{ $d->idbarang }}</td>
-    <td>{{ $d->jenis }}</td>
+    <td>{{ $d->nama_jenis }}</td>
     <td>{{ $d->nama }}</td>
-    <td>{{ $d->satuan->nama_satuan ?? '-' }}</td>
+    <td>{{ $d->nama_satuan }}</td>
     <td>Rp {{ number_format($d->harga, 0, ',', '.') }}</td>
-    <td>{{ $d->status ? 'Aktif' : 'Nonaktif' }}</td>
+    <td>{{ $d->status_text }}</td>
     <td>
       <a href="{{ route('barang.edit', $d->idbarang) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('barang.destroy', $d->idbarang) }}" method="POST" class="d-inline"

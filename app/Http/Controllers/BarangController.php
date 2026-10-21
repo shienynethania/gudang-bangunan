@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Barang;
 use App\Models\Satuan;
+use App\Models\VBarangDetail;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\QueryException;
 
 class BarangController extends Controller
@@ -19,18 +21,23 @@ class BarangController extends Controller
 
     private array $fields = ['jenis', 'nama', 'idsatuan', 'status', 'harga'];
 
+    // Menampilkan data dari VIEW v_barang_detail
     public function index()
     {
-        return view('barang.index', ['data' => Barang::with('satuan')->get()]);
-    }
-
-    public function create()
-    {
-        return view('barang.create', [
-            'satuan' => Satuan::where('status', 1)->get(),
+        return view('barang.index', [
+            'data' => VBarangDetail::orderBy('idbarang')->get(),
         ]);
     }
 
+    // Dropdown satuan diambil dari VIEW v_satuan_aktif
+    public function create()
+    {
+        return view('barang.create', [
+            'satuan' => DB::table('v_satuan_aktif')->get(),
+        ]);
+    }
+
+    // Simpan, ubah, hapus tetap ke tabel asli
     public function store(Request $r)
     {
         $r->validate($this->rules);
@@ -42,7 +49,6 @@ class BarangController extends Controller
     {
         $row = Barang::findOrFail($id);
 
-        // satuan aktif + satuan yang sedang dipakai barang ini (walau nonaktif)
         $satuan = Satuan::where('status', 1)
             ->orWhere('idsatuan', $row->idsatuan)
             ->get();
