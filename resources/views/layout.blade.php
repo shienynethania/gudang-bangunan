@@ -15,6 +15,7 @@
         <a class="nav-link" href="{{ route('barang.index') }}">Barang</a>
         <a class="nav-link" href="{{ route('user.index') }}">User</a>
         <a class="nav-link" href="{{ route('margin.index') }}">Margin</a>
+        <a class="nav-link" href="{{ route('ringkasan.index') }}">Ringkasan</a>
       </div>
     </div>
   </nav>

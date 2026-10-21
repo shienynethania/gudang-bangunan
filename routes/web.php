@@ -7,6 +7,7 @@ use App\Http\Controllers\VendorController;
 use App\Http\Controllers\BarangController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\MarginController;
+use App\Http\Controllers\RingkasanController;
 
 Route::resource('satuan', SatuanController::class)->except('show');
 Route::get('/', fn() => redirect('/satuan'));
@@ -16,4 +17,5 @@ Route::resource('vendor', VendorController::class)->except('show');
 Route::resource('barang', BarangController::class)->except('show');
 Route::resource('user', UserController::class)->except('show');
 Route::resource('margin', MarginController::class)->except('show');
+Route::get('ringkasan', [RingkasanController::class, 'index'])->name('ringkasan.index');
 
