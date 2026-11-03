@@ -11,6 +11,9 @@
      class="btn btn-sm {{ $filter == 'semua' ? 'btn-dark' : 'btn-outline-dark' }}">Semua</a>
   <a href="{{ route('barang.index', ['filter' => 'aktif']) }}"
      class="btn btn-sm {{ $filter == 'aktif' ? 'btn-dark' : 'btn-outline-dark' }}">Aktif</a>
+  <small class="text-muted ms-2">
+    Sumber data: {{ $filter == 'aktif' ? 'v_barang_aktif' : 'v_barang_all' }}
+  </small>
 </div>
 
 <table class="table table-bordered bg-white">
