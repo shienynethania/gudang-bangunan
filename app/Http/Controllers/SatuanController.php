@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use App\Models\Satuan;
 use Illuminate\Http\Request;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 class SatuanController extends Controller
 {
@@ -12,12 +13,25 @@ class SatuanController extends Controller
         'status'      => 'required|in:0,1',
     ];
 
-    public function index()  { return view('satuan.index', ['data' => Satuan::all()]); }
+   public function index()
+    {
+        return view('satuan.index', ['data' => DB::select('SELECT * FROM v_satuan_all ORDER BY idsatuan')]);
+    }
     public function create() { return view('satuan.create'); }
 
-    public function store(Request $r) {
-        $r->validate($this->rules);
-        Satuan::create($r->only('nama_satuan', 'status'));
+    public function store(Request $r)
+    {
+        $r->validate([
+            'nama_satuan' => 'required',
+            'status'      => 'required|in:0,1',
+    ]);
+
+    try {
+        DB::statement('CALL sp_tambah_satuan(?, ?)', [$r->nama_satuan, (int) $r->status]);
+    } catch (QueryException $e) {
+        return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan data');
+    }
+
         return redirect()->route('satuan.index')->with('ok', 'Data berhasil ditambahkan');
     }
 

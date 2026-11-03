@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 class RoleController extends Controller
 {
@@ -11,7 +12,10 @@ class RoleController extends Controller
         'nama_role' => 'required|max:100',
     ];
 
-    public function index()  { return view('role.index', ['data' => Role::all()]); }
+    public function index()
+{
+    return view('role.index', ['data' => DB::select('SELECT * FROM v_role_jumlah_user ORDER BY idrole')]);
+}
     public function create() { return view('role.create'); }
 
     public function store(Request $r) {

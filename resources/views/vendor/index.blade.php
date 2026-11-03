@@ -18,8 +18,8 @@
   <tr>
     <td>{{ $d->idvendor }}</td>
     <td>{{ $d->nama_vendor }}</td>
-    <td>{{ $d->badan_hukum == 'Y' ? 'Berbadan hukum' : 'Tidak berbadan hukum' }}</td>
-    <td>{{ $d->status == 'A' ? 'Aktif' : 'Nonaktif' }}</td>
+    <td>{{ $d->badan_hukum_text }}</td>
+    <td>{{ $d->status_text }}</td>
     <td>
       <a href="{{ route('vendor.edit', $d->idvendor) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('vendor.destroy', $d->idvendor) }}" method="POST" class="d-inline"
