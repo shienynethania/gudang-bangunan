@@ -4,13 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Barang;
 use App\Models\Satuan;
-use App\Models\VBarangDetail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\QueryException;
 
 class BarangController extends Controller
 {
+    // Aturan lengkap, dipakai untuk update (masih lewat Eloquent)
     private array $rules = [
         'jenis'    => 'required|in:S,B,C,P,K',
         'nama'     => 'required|max:45',
@@ -21,27 +21,44 @@ class BarangController extends Controller
 
     private array $fields = ['jenis', 'nama', 'idsatuan', 'status', 'harga'];
 
-    // Menampilkan data dari VIEW v_barang_detail
-    public function index()
+    // TAMPIL: panggil VIEW dengan SELECT *
+    public function index(Request $r)
     {
-        return view('barang.index', [
-            'data' => VBarangDetail::orderBy('idbarang')->get(),
-        ]);
+        $filter = $r->query('filter', 'semua');
+        $view   = $filter === 'aktif' ? 'v_barang_aktif' : 'v_barang_all';
+
+        $data = DB::select("SELECT * FROM $view ORDER BY idbarang");
+
+        return view('barang.index', compact('data', 'filter'));
     }
 
-    // Dropdown satuan diambil dari VIEW v_satuan_aktif
+    // DROPDOWN SATUAN: SELECT * dari VIEW
     public function create()
     {
         return view('barang.create', [
-            'satuan' => DB::table('v_satuan_aktif')->get(),
+            'satuan' => DB::select('SELECT * FROM v_satuan_aktif'),
         ]);
     }
 
-    // Simpan, ubah, hapus tetap ke tabel asli
+    // SIMPAN: panggil STORED PROCEDURE, validasi dilakukan di database
     public function store(Request $r)
     {
-        $r->validate($this->rules);
-        Barang::create($r->only($this->fields));
+        $r->validate([
+            'jenis'    => 'required',
+            'nama'     => 'required',
+            'idsatuan' => 'required',
+            'status'   => 'required',
+            'harga'    => 'required',
+        ]);
+
+        try {
+            DB::statement('CALL sp_tambah_barang(?, ?, ?, ?, ?)', [
+                $r->jenis, $r->nama, (int) $r->idsatuan, (int) $r->harga, (int) $r->status,
+            ]);
+        } catch (QueryException $e) {
+            return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan data');
+        }
+
         return redirect()->route('barang.index')->with('ok', 'Data berhasil ditambahkan');
     }
 

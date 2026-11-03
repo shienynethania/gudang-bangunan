@@ -6,6 +6,13 @@
   <a href="{{ route('barang.create') }}" class="btn btn-primary">+ Tambah</a>
 </div>
 
+<div class="mb-2">
+  <a href="{{ route('barang.index', ['filter' => 'semua']) }}"
+     class="btn btn-sm {{ $filter == 'semua' ? 'btn-dark' : 'btn-outline-dark' }}">Semua</a>
+  <a href="{{ route('barang.index', ['filter' => 'aktif']) }}"
+     class="btn btn-sm {{ $filter == 'aktif' ? 'btn-dark' : 'btn-outline-dark' }}">Aktif</a>
+</div>
+
 <table class="table table-bordered bg-white">
   <tr>
     <th>ID</th>
@@ -13,6 +20,7 @@
     <th>Nama Barang</th>
     <th>Satuan</th>
     <th>Harga</th>
+    <th>Harga + Margin</th>
     <th>Status</th>
     <th width="150">Aksi</th>
   </tr>
@@ -23,6 +31,7 @@
     <td>{{ $d->nama }}</td>
     <td>{{ $d->nama_satuan }}</td>
     <td>Rp {{ number_format($d->harga, 0, ',', '.') }}</td>
+    <td>Rp {{ number_format($d->harga_jual, 0, ',', '.') }}</td>
     <td>{{ $d->status_text }}</td>
     <td>
       <a href="{{ route('barang.edit', $d->idbarang) }}" class="btn btn-sm btn-warning">Edit</a>

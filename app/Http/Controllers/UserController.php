@@ -5,12 +5,14 @@ use App\Models\{Pengguna, Role};
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 class UserController extends Controller
 {
-    public function index() {
-        return view('user.index', ['data' => Pengguna::with('role')->get()]);
+   public function index() {
+    return view('user.index', ['data' => DB::select('SELECT * FROM v_user_role ORDER BY iduser')]);
     }
+
     public function create() {
         return view('user.create', ['role' => Role::all()]);
     }

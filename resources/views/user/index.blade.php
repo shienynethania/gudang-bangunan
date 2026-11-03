@@ -10,7 +10,7 @@
   <tr>
     <td>{{ $d->iduser }}</td>
     <td>{{ $d->username }}</td>
-    <td>{{ $d->role->nama_role }}</td>
+    <td>{{ $d->nama_role }}</td>
     <td>
       <a href="{{ route('user.edit', $d->iduser) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('user.destroy', $d->iduser) }}" method="POST" class="d-inline"
