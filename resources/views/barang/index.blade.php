@@ -24,6 +24,7 @@
     <th>Satuan</th>
     <th>Harga</th>
     <th>Harga + Margin</th>
+    <th>Harga + Margin + PPN</th>
     <th>Status</th>
     <th width="150">Aksi</th>
   </tr>
@@ -35,6 +36,7 @@
     <td>{{ $d->nama_satuan }}</td>
     <td>Rp {{ number_format($d->harga, 0, ',', '.') }}</td>
     <td>Rp {{ number_format($d->harga_jual, 0, ',', '.') }}</td>
+    <td>Rp {{ number_format($d->harga_jual_ppn, 0, ',', '.') }}</td>
     <td>{{ $d->status_text }}</td>
     <td>
       <a href="{{ route('barang.edit', $d->idbarang) }}" class="btn btn-sm btn-warning">Edit</a>
