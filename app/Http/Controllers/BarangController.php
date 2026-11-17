@@ -10,7 +10,6 @@ use Illuminate\Database\QueryException;
 
 class BarangController extends Controller
 {
-    // Aturan lengkap, dipakai untuk update (masih lewat Eloquent)
     private array $rules = [
         'jenis'    => 'required|in:S,B,C,P,K',
         'nama'     => 'required|max:45',
@@ -21,7 +20,7 @@ class BarangController extends Controller
 
     private array $fields = ['jenis', 'nama', 'idsatuan', 'status', 'harga'];
 
-    // TAMPIL: panggil VIEW dengan SELECT *
+    // VIEW TAMPIL
     public function index(Request $r)
     {
         $filter = $r->query('filter', 'semua');
@@ -32,7 +31,7 @@ class BarangController extends Controller
         return view('barang.index', compact('data', 'filter'));
     }
 
-    // DROPDOWN SATUAN: SELECT * dari VIEW
+    // VIEW DROPDOWN SATUAN
     public function create()
     {
         return view('barang.create', [
@@ -40,7 +39,7 @@ class BarangController extends Controller
         ]);
     }
 
-    // SIMPAN: panggil STORED PROCEDURE, validasi dilakukan di database
+    // SIMPAN BARANG STO                                                                                                                RED PROCEDURE
     public function store(Request $r)
     {
         $r->validate([

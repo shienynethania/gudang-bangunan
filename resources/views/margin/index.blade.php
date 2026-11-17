@@ -14,7 +14,7 @@
     <th>Dibuat Oleh</th>
     <th>Dibuat</th>
     <th>Diubah</th>
-    <th width="150">Aksi</th>
+    <th width="230">Aksi</th>
   </tr>
   @foreach($data as $d)
   <tr>
@@ -25,6 +25,12 @@
     <td>{{ $d->created_at }}</td>
     <td>{{ $d->updated_at }}</td>
     <td>
+      @if($d->status_angka != 1)
+      <form action="{{ route('margin.aktif', $d->idmargin_penjualan) }}" method="POST" class="d-inline">
+        @csrf
+        <button class="btn btn-sm btn-success">Aktifkan</button>
+      </form>
+      @endif
       <a href="{{ route('margin.edit', $d->idmargin_penjualan) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('margin.destroy', $d->idmargin_penjualan) }}" method="POST" class="d-inline"
             onsubmit="return confirm('Hapus data ini?')">
