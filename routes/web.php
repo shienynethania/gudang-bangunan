@@ -11,6 +11,9 @@ use App\Http\Controllers\RingkasanController;
 use App\Http\Controllers\PengadaanController;
 use App\Http\Controllers\PenerimaanController;
 use App\Http\Controllers\PenjualanController;
+use App\Http\Controllers\KartuStokController;
+
+Route::get('kartu-stok', [KartuStokController::class, 'index'])->name('kartustok.index');
 
 Route::resource('penjualan', PenjualanController::class)->only(['index', 'store', 'show']);
 Route::post('penjualan/{id}/detail', [PenjualanController::class, 'tambahDetail'])->name('penjualan.detail');

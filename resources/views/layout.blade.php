@@ -19,6 +19,7 @@
         <a class="nav-link" href="{{ route('penerimaan.index') }}">Penerimaan</a>
         <a class="nav-link" href="{{ route('penjualan.index') }}">Penjualan</a>
         <a class="nav-link" href="{{ route('ringkasan.index') }}">Ringkasan</a>
+        <a class="nav-link" href="{{ route('kartustok.index') }}">Kartu Stok</a>
       </div>
     </div>
   </nav>
