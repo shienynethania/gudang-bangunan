@@ -12,14 +12,6 @@
       @endforeach
     </select>
   </div>
-  <div class="mb-3">
-    <label class="form-label">User</label>
-    <select name="iduser" class="form-select" required>
-      @foreach($user as $u)
-        <option value="{{ $u->iduser }}" @selected(old('iduser') == $u->iduser)>{{ $u->username }}</option>
-      @endforeach
-    </select>
-  </div>
   <button class="btn btn-primary">Next &rarr;</button>
   <a href="{{ route('pengadaan.index') }}" class="btn btn-secondary">Batal</a>
 </form>

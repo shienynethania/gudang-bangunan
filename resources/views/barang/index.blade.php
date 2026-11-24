@@ -1,9 +1,12 @@
 @extends('layout')
 
 @section('content')
+@php $kelola = in_array((int) session('idrole'), [1,2]); @endphp
 <div class="d-flex justify-content-between mb-3">
   <h4>Data Barang</h4>
-  <a href="{{ route('barang.create') }}" class="btn btn-primary">+ Tambah</a>
+  @if($kelola)
+    <a href="{{ route('barang.create') }}" class="btn btn-primary">+ Tambah</a>
+  @endif
 </div>
 
 <div class="mb-2">
@@ -21,23 +24,26 @@
     <th>ID</th>
     <th>Jenis</th>
     <th>Nama Barang</th>
+    <th>Vendor</th>
     <th>Satuan</th>
     <th>Harga</th>
     <th>Harga + Margin</th>
     <th>Harga + Margin + PPN</th>
     <th>Status</th>
-    <th width="150">Aksi</th>
+    @if($kelola) <th width="150">Aksi</th> @endif
   </tr>
   @foreach($data as $d)
   <tr>
     <td>{{ $d->idbarang }}</td>
     <td>{{ $d->nama_jenis }}</td>
     <td>{{ $d->nama }}</td>
+    <td>{{ $d->nama_vendor ?? '-' }}</td>
     <td>{{ $d->nama_satuan }}</td>
     <td>Rp {{ number_format($d->harga, 0, ',', '.') }}</td>
     <td>Rp {{ number_format($d->harga_jual, 0, ',', '.') }}</td>
     <td>Rp {{ number_format($d->harga_jual_ppn, 0, ',', '.') }}</td>
     <td>{{ $d->status_text }}</td>
+    @if($kelola)
     <td>
       <a href="{{ route('barang.edit', $d->idbarang) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('barang.destroy', $d->idbarang) }}" method="POST" class="d-inline"
@@ -47,6 +53,7 @@
         <button class="btn btn-sm btn-danger">Hapus</button>
       </form>
     </td>
+    @endif
   </tr>
   @endforeach
 </table>

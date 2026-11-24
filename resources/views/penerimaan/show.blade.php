@@ -1,5 +1,6 @@
 @extends('layout')
 @section('content')
+@php $bisaTerima = in_array((int) session('idrole'), [1,2]); @endphp
 <h4>Penerimaan #{{ $pn->idpenerimaan }} - Langkah 2: Detail Penerimaan</h4>
 <p>
   Pengadaan: <b>#{{ $pn->idpengadaan }}</b> | Vendor: <b>{{ $pn->nama_vendor }}</b> | User: {{ $pn->username }} |
@@ -11,7 +12,8 @@
   @csrf
   <table class="table table-bordered bg-white">
     <tr>
-      <th>Barang</th><th>Satuan</th><th>Dipesan</th><th>Sudah Diterima</th><th>Sisa</th><th width="170">Terima Sekarang</th>
+      <th>Barang</th><th>Satuan</th><th>Dipesan</th><th>Sudah Diterima</th><th>Sisa</th>
+      @if($bisaTerima) <th width="170">Terima Sekarang</th> @endif
     </tr>
     @foreach($sisa as $s)
     <tr class="{{ $s->sisa == 0 ? 'table-success' : '' }}">
@@ -20,6 +22,7 @@
       <td>{{ $s->dipesan }}</td>
       <td>{{ $s->diterima }}</td>
       <td>{{ $s->sisa }}</td>
+      @if($bisaTerima)
       <td>
         @if($s->sisa > 0 && $pengadaan->status == 'P')
           <input type="number" name="jumlah[{{ $s->idbarang }}]" min="0" max="{{ $s->sisa }}" value="0" class="form-control form-control-sm">
@@ -27,10 +30,11 @@
           <span class="text-muted">-</span>
         @endif
       </td>
+      @endif
     </tr>
     @endforeach
   </table>
-  @if($pengadaan->status == 'P')
+  @if($bisaTerima && $pengadaan->status == 'P')
     <button class="btn btn-primary">Simpan Penerimaan</button>
   @endif
   <a href="{{ route('penerimaan.index') }}" class="btn btn-secondary">Selesai</a>

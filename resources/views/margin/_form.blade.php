@@ -5,15 +5,6 @@
   @error('persen') <small class="text-danger">{{ $message }}</small> @enderror
 </div>
 <div class="mb-3">
-  <label class="form-label">User</label>
-  <select name="iduser" class="form-select">
-    @foreach($user as $u)
-      <option value="{{ $u->iduser }}" @selected(old('iduser', $row->iduser ?? '') == $u->iduser)>{{ $u->username }}</option>
-    @endforeach
-  </select>
-  @error('iduser') <small class="text-danger">{{ $message }}</small> @enderror
-</div>
-<div class="mb-3">
   <label class="form-label">Status</label>
   <select name="status" class="form-select">
     <option value="1" @selected(old('status', $row->status ?? 1) == 1)>Aktif</option>

@@ -6,7 +6,7 @@
   Status: <span class="badge {{ $p->status == 'T' ? 'bg-success' : 'bg-warning text-dark' }}">{{ $p->status_text }}</span>
 </p>
 
-@if($p->status == 'P')
+@if($p->status == 'P' && in_array((int) session('idrole'), [1,3]))
 <form action="{{ route('pengadaan.detail', $p->idpengadaan) }}" method="POST" class="row g-2 mb-3">
   @csrf
   <div class="col-md-6">

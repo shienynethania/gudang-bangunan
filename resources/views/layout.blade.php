@@ -1,3 +1,7 @@
+@php
+  $role  = (int) session('idrole');
+  $boleh = fn(array $r) => in_array($role, $r);
+@endphp
 <!DOCTYPE html>
 <html>
 <head>
@@ -8,19 +12,33 @@
   <nav class="navbar navbar-expand navbar-dark bg-dark mb-4">
     <div class="container">
       <span class="navbar-brand">Gudang Bahan Bangunan</span>
-      <div class="navbar-nav">
-        <a class="nav-link" href="{{ route('satuan.index') }}">Satuan</a>
-        <a class="nav-link" href="{{ route('role.index') }}">Role</a>
-        <a class="nav-link" href="{{ route('barang.index') }}">Barang</a>
-        <a class="nav-link" href="{{ route('user.index') }}">User</a>
-        <a class="nav-link" href="{{ route('margin.index') }}">Margin</a>
-        <a class="nav-link" href="{{ route('vendor.index') }}">Vendor</a>
-        <a class="nav-link" href="{{ route('pengadaan.index') }}">Pengadaan</a>
-        <a class="nav-link" href="{{ route('penerimaan.index') }}">Penerimaan</a>
-        <a class="nav-link" href="{{ route('penjualan.index') }}">Penjualan</a>
-        <a class="nav-link" href="{{ route('ringkasan.index') }}">Ringkasan</a>
-        <a class="nav-link" href="{{ route('kartustok.index') }}">Kartu Stok</a>
+      @if(session('iduser'))
+      <div class="navbar-nav me-auto">
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('satuan.index') }}">Satuan</a> @endif
+        @if($boleh([1]))       <a class="nav-link" href="{{ route('role.index') }}">Role</a> @endif
+        @if($boleh([1,2,3,4])) <a class="nav-link" href="{{ route('barang.index') }}">Barang</a> @endif
+        @if($boleh([1]))       <a class="nav-link" href="{{ route('user.index') }}">User</a> @endif
+        @if($boleh([1]))       <a class="nav-link" href="{{ route('margin.index') }}">Margin</a> @endif
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('vendor.index') }}">Vendor</a> @endif
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('pengadaan.index') }}">Pengadaan</a> @endif
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('penerimaan.index') }}">Penerimaan</a> @endif
+        @if($boleh([1,4]))     <a class="nav-link" href="{{ route('penjualan.index') }}">Penjualan</a> @endif
+        @if($boleh([1,2]))     <a class="nav-link" href="{{ route('kartustok.index') }}">Kartu Stok</a> @endif
+        @if($boleh([1,2]))     <a class="nav-link" href="{{ route('ringkasan.index') }}">Ringkasan</a> @endif
       </div>
+      <div class="d-flex align-items-center">
+        <span class="navbar-text me-3">{{ session('username') }} ({{ session('nama_role') }})</span>
+        <form action="{{ route('logout') }}" method="POST">
+          @csrf
+          <button class="btn btn-sm btn-outline-light">Keluar</button>
+        </form>
+      </div>
+      @else
+      <div class="navbar-nav ms-auto">
+        <a class="nav-link" href="{{ route('login') }}">Login</a>
+        <a class="nav-link" href="{{ route('register') }}">Daftar</a>
+      </div>
+      @endif
     </div>
   </nav>
   <div class="container">

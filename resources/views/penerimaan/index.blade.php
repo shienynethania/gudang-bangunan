@@ -2,7 +2,9 @@
 @section('content')
 <div class="d-flex justify-content-between mb-3">
   <h4>Data Penerimaan</h4>
-  <a href="{{ route('penerimaan.create') }}" class="btn btn-primary">+ Penerimaan Baru</a>
+  @if(in_array((int) session('idrole'), [1,2]))
+    <a href="{{ route('penerimaan.create') }}" class="btn btn-primary">+ Penerimaan Baru</a>
+  @endif
 </div>
 
 <table class="table table-bordered bg-white">

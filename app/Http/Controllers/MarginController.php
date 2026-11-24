@@ -11,7 +11,6 @@ class MarginController extends Controller
     private array $rules = [
         'persen' => 'required|numeric|min:0|max:100',
         'status' => 'required|in:0,1',
-        'iduser' => 'required|exists:user,iduser',
     ];
 
     public function index()
@@ -25,15 +24,16 @@ class MarginController extends Controller
 
     public function create()
     {
-        return view('margin.create', ['user' => DB::select('SELECT * FROM v_user_aman')]);
+        return view('margin.create');
     }
 
+    // user pembuat margin = user yang sedang login
     public function store(Request $r)
     {
         $r->validate($this->rules);
 
         try {
-            DB::statement('CALL sp_tambah_margin(?, ?, ?)', [$r->persen, (int) $r->status, (int) $r->iduser]);
+            DB::statement('CALL sp_tambah_margin(?, ?, ?)', [$r->persen, (int) $r->status, (int) session('iduser')]);
         } catch (QueryException $e) {
             return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan data');
         }
@@ -43,10 +43,7 @@ class MarginController extends Controller
 
     public function edit($id)
     {
-        return view('margin.edit', [
-            'row'  => MarginPenjualan::findOrFail($id),
-            'user' => DB::select('SELECT * FROM v_user_aman'),
-        ]);
+        return view('margin.edit', ['row' => MarginPenjualan::findOrFail($id)]);
     }
 
     public function update(Request $r, $id)
@@ -61,7 +58,7 @@ class MarginController extends Controller
         }
 
         try {
-            DB::statement('CALL sp_ubah_margin(?, ?, ?, ?)', [$id, $r->persen, (int) $r->status, (int) $r->iduser]);
+            DB::statement('CALL sp_ubah_margin(?, ?, ?, ?)', [$id, $r->persen, (int) $r->status, (int) session('iduser')]);
         } catch (QueryException $e) {
             return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal mengubah data');
         }

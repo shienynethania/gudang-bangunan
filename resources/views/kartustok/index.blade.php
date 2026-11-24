@@ -34,7 +34,7 @@
     <td>
       @if($d->jenis_transaksi == 'P')
         <a href="{{ route('penerimaan.show', $d->idtransaksi) }}">#{{ $d->idtransaksi }}</a>
-      @elseif($d->jenis_transaksi == 'J')
+      @elseif($d->jenis_transaksi == 'J' && in_array((int) session('idrole'), [1,4]))
         <a href="{{ route('penjualan.show', $d->idtransaksi) }}">#{{ $d->idtransaksi }}</a>
       @else
         #{{ $d->idtransaksi }}

@@ -19,7 +19,6 @@ class PenerimaanController extends Controller
     {
         return view('penerimaan.create', [
             'pengadaan' => DB::select("SELECT * FROM v_pengadaan WHERE status = 'P' AND total_nilai > 0 ORDER BY idpengadaan DESC"),
-            'user'      => DB::select('SELECT * FROM v_user_aman'),
         ]);
     }
 
@@ -27,7 +26,6 @@ class PenerimaanController extends Controller
     {
         $r->validate([
             'idpengadaan' => 'required|integer',
-            'iduser'      => 'required|exists:user,iduser',
         ]);
 
         $p = DB::selectOne("SELECT idpengadaan FROM v_pengadaan WHERE idpengadaan = ? AND status = 'P' AND total_nilai > 0", [$r->idpengadaan]);
@@ -36,7 +34,7 @@ class PenerimaanController extends Controller
         }
 
         try {
-            DB::statement('CALL sp_tambah_penerimaan(?, ?, @id)', [$r->idpengadaan, $r->iduser]);
+            DB::statement('CALL sp_tambah_penerimaan(?, ?, @id)', [$r->idpengadaan, session('iduser')]);
             $id = DB::selectOne('SELECT @id AS id')->id;
         } catch (QueryException $e) {
             return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan data');

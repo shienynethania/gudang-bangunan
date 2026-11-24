@@ -1,12 +1,12 @@
-@extends('layout')
-
-@section('content')
-<h4>Edit Barang</h4>
-<form action="{{ route('barang.update', $row->idbarang) }}" method="POST">
-  @csrf
-  @method('PUT')
-  @include('barang._form')
-  <button class="btn btn-primary">Update</button>
-  <a href="{{ route('barang.index') }}" class="btn btn-secondary">Batal</a>
-</form>
-@endsection
+<div class="mb-3">
+    <label class="form-label">Vendor</label>
+    <select name="idvendor" class="form-select @error('idvendor') is-invalid @enderror" required>
+        @foreach($vendor as $v)
+            <option value="{{ $v->idvendor }}"
+                {{ old('idvendor', $row->idvendor) == $v->idvendor ? 'selected' : '' }}>
+                {{ $v->nama_vendor }}
+            </option>
+        @endforeach
+    </select>
+    @error('idvendor') <div class="invalid-feedback">{{ $message }}</div> @enderror
+</div>

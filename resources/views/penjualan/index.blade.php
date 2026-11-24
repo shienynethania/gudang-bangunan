@@ -2,14 +2,9 @@
 @section('content')
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4>Data Penjualan</h4>
-  <form action="{{ route('penjualan.store') }}" method="POST" class="d-flex gap-2">
+  <form action="{{ route('penjualan.store') }}" method="POST">
     @csrf
-    <select name="iduser" class="form-select" required>
-      @foreach($user as $u)
-        <option value="{{ $u->iduser }}">{{ $u->username }}</option>
-      @endforeach
-    </select>
-    <button class="btn btn-primary text-nowrap">+ Penjualan Baru</button>
+    <button class="btn btn-primary">+ Penjualan Baru</button>
   </form>
 </div>
 <p class="text-muted">Margin aktif: <b>{{ $margin ? $margin->persen . '%' : 'belum ada' }}</b></p>

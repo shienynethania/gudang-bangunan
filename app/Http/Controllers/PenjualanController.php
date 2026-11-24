@@ -11,22 +11,19 @@ class PenjualanController extends Controller
     {
         return view('penjualan.index', [
             'data'   => DB::select('SELECT * FROM v_penjualan ORDER BY idpenjualan DESC'),
-            'user'   => DB::select('SELECT * FROM v_user_aman'),
             'margin' => DB::selectOne('SELECT persen FROM margin_penjualan WHERE status = 1'),
         ]);
     }
 
-    // nota baru (memakai margin yang sedang aktif), lanjut ke detail
-    public function store(Request $r)
+    // nota baru (memakai margin yang sedang aktif dan user yang login), lanjut ke detail
+    public function store()
     {
-        $r->validate(['iduser' => 'required|exists:user,iduser']);
-
         if (!DB::selectOne('SELECT 1 AS ok FROM margin_penjualan WHERE status = 1')) {
             return back()->with('err', 'Belum ada margin yang aktif. Aktifkan satu margin dulu.');
         }
 
         try {
-            DB::statement('CALL sp_tambah_penjualan(?, @id)', [$r->iduser]);
+            DB::statement('CALL sp_tambah_penjualan(?, @id)', [session('iduser')]);
             $id = DB::selectOne('SELECT @id AS id')->id;
         } catch (QueryException $e) {
             return back()->with('err', $e->errorInfo[2] ?? 'Gagal membuat penjualan');

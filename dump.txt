@@ -2,24 +2,161 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\SatuanController;
-use App\Http\Controllers\RoleController;
-use App\Http\Controllers\VendorController;
-use App\Http\Controllers\BarangController;
-use App\Http\Controllers\UserController;
-use App\Http\Controllers\MarginController;
-use App\Http\Controllers\RingkasanController;
+use App\Http\Controllers\{
+    AuthController, SatuanController, RoleController, VendorController, BarangController,
+    UserController, MarginController, RingkasanController, PengadaanController,
+    PenerimaanController, PenjualanController, KartuStokController
+};
+use App\Http\Middleware\{CekLogin, CekRole};
 
-Route::resource('satuan', SatuanController::class)->except('show');
-Route::get('/', fn() => redirect('/satuan'));
-// route resource ditambah satu per satu di bawah ini
-Route::resource('role', RoleController::class)->except('show');
-Route::resource('vendor', VendorController::class)->except('show');
-Route::resource('barang', BarangController::class)->except('show');
-Route::resource('user', UserController::class)->except('show');
-Route::resource('margin', MarginController::class)->except('show');
-Route::get('ringkasan', [RingkasanController::class, 'index'])->name('ringkasan.index');
+// ---------- TAMU ----------
+Route::get('login', [AuthController::class, 'formLogin'])->name('login');
+Route::post('login', [AuthController::class, 'login'])->name('login.proses');
+Route::get('register', [AuthController::class, 'formRegister'])->name('register');
+Route::post('register', [AuthController::class, 'register'])->name('register.proses');
 
+// ---------- HARUS LOGIN ----------
+Route::middleware(CekLogin::class)->group(function () {
+
+    Route::post('logout', [AuthController::class, 'logout'])->name('logout');
+
+    // halaman awal sesuai role
+    Route::get('/', function () {
+        return match ((int) session('idrole')) {
+            4       => redirect()->route('penjualan.index'),
+            3       => redirect()->route('pengadaan.index'),
+            default => redirect()->route('ringkasan.index'),
+        };
+    });
+
+    // 1 = Super Admin, 2 = Admin Gudang, 3 = Staf Pengadaan, 4 = Kasir
+
+    // --- Super Admin saja ---
+    Route::middleware(CekRole::class . ':1')->group(function () {
+        Route::resource('user', UserController::class)->except('show');
+        Route::resource('role', RoleController::class)->except('show');
+        Route::resource('margin', MarginController::class)->except('show');
+        Route::post('margin/{id}/aktif', [MarginController::class, 'aktifkan'])->name('margin.aktif');
+    });
+
+    // --- Satuan: kelola 1,2 | lihat 1,2,3 ---
+    Route::resource('satuan', SatuanController::class)->except(['show', 'index'])->middleware(CekRole::class . ':1,2');
+    Route::resource('satuan', SatuanController::class)->only('index')->middleware(CekRole::class . ':1,2,3');
+
+    // --- Barang: kelola 1,2 | lihat 1,2,3,4 ---
+    Route::resource('barang', BarangController::class)->except(['show', 'index'])->middleware(CekRole::class . ':1,2');
+    Route::resource('barang', BarangController::class)->only('index')->middleware(CekRole::class . ':1,2,3,4');
+
+    // --- Vendor: kelola 1,3 | lihat 1,2,3 ---
+    Route::resource('vendor', VendorController::class)->except(['show', 'index'])->middleware(CekRole::class . ':1,3');
+    Route::resource('vendor', VendorController::class)->only('index')->middleware(CekRole::class . ':1,2,3');
+
+    // --- Pengadaan: buat 1,3 | lihat 1,2,3 (create didaftar dulu sebelum show) ---
+    Route::resource('pengadaan', PengadaanController::class)->only(['create', 'store'])->middleware(CekRole::class . ':1,3');
+    Route::post('pengadaan/{id}/detail', [PengadaanController::class, 'tambahDetail'])->name('pengadaan.detail')->middleware(CekRole::class . ':1,3');
+    Route::resource('pengadaan', PengadaanController::class)->only(['index', 'show'])->middleware(CekRole::class . ':1,2,3');
+
+    // --- Penerimaan: buat 1,2 | lihat 1,2,3 ---
+    Route::resource('penerimaan', PenerimaanController::class)->only(['create', 'store'])->middleware(CekRole::class . ':1,2');
+    Route::post('penerimaan/{id}/detail', [PenerimaanController::class, 'tambahDetail'])->name('penerimaan.detail')->middleware(CekRole::class . ':1,2');
+    Route::resource('penerimaan', PenerimaanController::class)->only(['index', 'show'])->middleware(CekRole::class . ':1,2,3');
+
+    // --- Penjualan: 1,4 ---
+    Route::middleware(CekRole::class . ':1,4')->group(function () {
+        Route::resource('penjualan', PenjualanController::class)->only(['index', 'store', 'show']);
+        Route::post('penjualan/{id}/detail', [PenjualanController::class, 'tambahDetail'])->name('penjualan.detail');
+    });
+
+    // --- Kartu Stok & Ringkasan: 1,2 ---
+    Route::middleware(CekRole::class . ':1,2')->group(function () {
+        Route::get('kartu-stok', [KartuStokController::class, 'index'])->name('kartustok.index');
+        Route::get('ringkasan', [RingkasanController::class, 'index'])->name('ringkasan.index');
+    });
+});
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\AuthController.php =====
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Pengguna;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
+
+class AuthController extends Controller
+{
+    // Super Admin (1) sengaja tidak bisa dipilih saat registrasi
+    private array $roleDaftar = [2, 3, 4];
+
+    public function formLogin()
+    {
+        if (session()->has('iduser')) return redirect('/');
+        return view('auth.login');
+    }
+
+    public function login(Request $r)
+    {
+        $r->validate(['username' => 'required', 'password' => 'required']);
+
+        $u = Pengguna::where('username', $r->username)->first();
+
+        if (!$u || !$this->cekPassword($r->password, $u->password)) {
+            return back()->withInput($r->only('username'))->with('err', 'Username atau password salah');
+        }
+
+        $r->session()->regenerate();
+        session([
+            'iduser'    => $u->iduser,
+            'username'  => $u->username,
+            'idrole'    => $u->idrole,
+            'nama_role' => DB::table('role')->where('idrole', $u->idrole)->value('nama_role'),
+        ]);
+
+        return redirect('/');
+    }
+
+    public function formRegister()
+    {
+        if (session()->has('iduser')) return redirect('/');
+        return view('auth.register', [
+            'role' => DB::table('role')->whereIn('idrole', $this->roleDaftar)->get(),
+        ]);
+    }
+
+    public function register(Request $r)
+    {
+        $r->validate([
+            'username' => 'required|max:45|unique:user,username',
+            'password' => 'required|min:6|confirmed',
+            'idrole'   => ['required', Rule::in($this->roleDaftar)],
+        ]);
+
+        Pengguna::create([
+            'username' => $r->username,
+            'password' => Hash::make($r->password),
+            'idrole'   => $r->idrole,
+        ]);
+
+        return redirect()->route('login')->with('ok', 'Registrasi berhasil, silakan login');
+    }
+
+    public function logout(Request $r)
+    {
+        $r->session()->invalidate();
+        $r->session()->regenerateToken();
+        return redirect()->route('login')->with('ok', 'Anda sudah keluar');
+    }
+
+    // mendukung password bcrypt (dari aplikasi) dan SHA2-256 (akun contoh dari SQL)
+    private function cekPassword(string $input, string $tersimpan): bool
+    {
+        if (str_starts_with($tersimpan, '$2y$')) {
+            return Hash::check($input, $tersimpan);
+        }
+        return hash_equals($tersimpan, hash('sha256', $input));
+    }
+}
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\BarangController.php =====
 <?php
 
@@ -121,11 +258,37 @@ abstract class Controller
 {
     //
 }
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\KartuStokController.php =====
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class KartuStokController extends Controller
+{
+    public function index(Request $r)
+    {
+        $q = DB::table('v_kartu_stok')->orderBy('idbarang')->orderBy('idkartu_stok');
+
+        // filter per barang (opsional)
+        if ($r->filled('idbarang')) {
+            $q->where('idbarang', (int) $r->idbarang);
+        }
+
+        return view('kartustok.index', [
+            'data'     => $q->get(),
+            'barang'   => DB::table('barang')->where('status', 1)->orderBy('nama')->get(['idbarang', 'nama']),
+            'idbarang' => $r->idbarang,
+        ]);
+    }
+}
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\MarginController.php =====
 <?php
 namespace App\Http\Controllers;
 
-use App\Models\{MarginPenjualan, Pengguna};
+use App\Models\MarginPenjualan;
 use Illuminate\Http\Request;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -135,62 +298,347 @@ class MarginController extends Controller
     private array $rules = [
         'persen' => 'required|numeric|min:0|max:100',
         'status' => 'required|in:0,1',
-        'iduser' => 'required|exists:user,iduser',
     ];
-    private array $fields = ['persen', 'status', 'iduser'];
 
     public function index()
     {
-        return view('margin.index', ['data' => DB::select('SELECT * FROM v_margin_detail ORDER BY idmargin_penjualan')]);
+        $data = DB::select('SELECT d.*, m.status AS status_angka
+                            FROM v_margin_detail d
+                            JOIN margin_penjualan m ON m.idmargin_penjualan = d.idmargin_penjualan
+                            ORDER BY d.idmargin_penjualan');
+        return view('margin.index', ['data' => $data]);
     }
-    public function create() {
-        return view('margin.create', ['user' => DB::select('SELECT * FROM v_user_aman')]);
+
+    public function create()
+    {
+        return view('margin.create');
     }
+
+    // user pembuat margin = user yang sedang login
     public function store(Request $r)
     {
-        $r->validate([
-            'persen' => 'required|numeric',
-            'status' => 'required|in:0,1',
-            'iduser' => 'required|integer',
-    ]);
+        $r->validate($this->rules);
 
         try {
-            DB::statement('CALL sp_tambah_margin(?, ?, ?)', [$r->persen, (int) $r->status, (int) $r->iduser]);
+            DB::statement('CALL sp_tambah_margin(?, ?, ?)', [$r->persen, (int) $r->status, (int) session('iduser')]);
         } catch (QueryException $e) {
             return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan data');
         }
 
         return redirect()->route('margin.index')->with('ok', 'Data berhasil ditambahkan');
     }
-    public function edit($id) {
-        return view('margin.edit', [
-            'row'  => MarginPenjualan::findOrFail($id),
-            'user' => DB::select('SELECT * FROM v_user_aman'),
-        ]);
+
+    public function edit($id)
+    {
+        return view('margin.edit', ['row' => MarginPenjualan::findOrFail($id)]);
     }
+
     public function update(Request $r, $id)
     {
-        $r->validate([
-            'persen' => 'required|numeric',
-            'status' => 'required|in:0,1',
-            'iduser' => 'required|integer',
-    ]);
+        $r->validate($this->rules);
 
-    try {
-        DB::statement('CALL sp_ubah_margin(?, ?, ?, ?)', [$id, $r->persen, (int) $r->status, (int) $r->iduser]);
-    } catch (QueryException $e) {
-        return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal mengubah data');
+        $lama = MarginPenjualan::findOrFail($id);
+
+        // margin aktif tidak boleh dimatikan langsung, harus mengaktifkan margin lain
+        if ($lama->status == 1 && (int) $r->status === 0) {
+            return back()->withInput()->with('err', 'Margin aktif tidak boleh dinonaktifkan langsung. Aktifkan margin lain.');
+        }
+
+        try {
+            DB::statement('CALL sp_ubah_margin(?, ?, ?, ?)', [$id, $r->persen, (int) $r->status, (int) session('iduser')]);
+        } catch (QueryException $e) {
+            return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal mengubah data');
+        }
+
+        return redirect()->route('margin.index')->with('ok', 'Data berhasil diubah');
     }
 
-    return redirect()->route('margin.index')->with('ok', 'Data berhasil diubah');
-}
-    public function destroy($id) {
+    // tombol Aktifkan: margin ini jadi aktif, yang lain otomatis nonaktif (lewat SP)
+    public function aktifkan($id)
+    {
+        MarginPenjualan::findOrFail($id);
+        DB::statement('CALL sp_aktifkan_margin(?)', [$id]);
+        return back()->with('ok', 'Margin diaktifkan, margin lain otomatis nonaktif');
+    }
+
+    public function destroy($id)
+    {
+        $m = MarginPenjualan::findOrFail($id);
+
+        if ($m->status == 1) {
+            return back()->with('err', 'Margin aktif tidak boleh dihapus. Aktifkan margin lain dulu.');
+        }
+
         try {
-            MarginPenjualan::findOrFail($id)->delete();
+            $m->delete();
             return back()->with('ok', 'Data berhasil dihapus');
         } catch (QueryException $e) {
             return back()->with('err', 'Data tidak bisa dihapus karena sudah dipakai transaksi');
         }
+    }
+}
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\PenerimaanController.php =====
+<?php
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+
+class PenerimaanController extends Controller
+{
+    public function index()
+    {
+        return view('penerimaan.index', [
+            'data' => DB::select('SELECT * FROM v_penerimaan ORDER BY idpenerimaan DESC'),
+        ]);
+    }
+
+    // langkah 1: pilih pengadaan yang masih pending
+    public function create()
+    {
+        return view('penerimaan.create', [
+            'pengadaan' => DB::select("SELECT * FROM v_pengadaan WHERE status = 'P' AND total_nilai > 0 ORDER BY idpengadaan DESC"),
+        ]);
+    }
+
+    public function store(Request $r)
+    {
+        $r->validate([
+            'idpengadaan' => 'required|integer',
+        ]);
+
+        $p = DB::selectOne("SELECT idpengadaan FROM v_pengadaan WHERE idpengadaan = ? AND status = 'P' AND total_nilai > 0", [$r->idpengadaan]);
+        if (!$p) {
+            return back()->withInput()->with('err', 'Pengadaan tidak ditemukan, sudah tuntas, atau belum punya barang');
+        }
+
+        try {
+            DB::statement('CALL sp_tambah_penerimaan(?, ?, @id)', [$r->idpengadaan, session('iduser')]);
+            $id = DB::selectOne('SELECT @id AS id')->id;
+        } catch (QueryException $e) {
+            return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan data');
+        }
+
+        return redirect()->route('penerimaan.show', $id);
+    }
+
+    // langkah 2: barang pesanan otomatis muncul, isi jumlah yang diterima (boleh cicil)
+    public function show($id)
+    {
+        $pn = DB::selectOne('SELECT * FROM v_penerimaan WHERE idpenerimaan = ?', [$id]);
+        abort_if(!$pn, 404);
+
+        return view('penerimaan.show', [
+            'pn'        => $pn,
+            'pengadaan' => DB::selectOne('SELECT * FROM v_pengadaan WHERE idpengadaan = ?', [$pn->idpengadaan]),
+            'sisa'      => DB::select('SELECT * FROM v_pengadaan_sisa WHERE idpengadaan = ?', [$pn->idpengadaan]),
+            'detail'    => DB::select('SELECT * FROM v_detail_penerimaan WHERE idpenerimaan = ?', [$id]),
+        ]);
+    }
+
+    public function tambahDetail(Request $r, $id)
+    {
+        $pn = DB::selectOne('SELECT * FROM v_penerimaan WHERE idpenerimaan = ?', [$id]);
+        abort_if(!$pn, 404);
+
+        $pg = DB::selectOne('SELECT status FROM v_pengadaan WHERE idpengadaan = ?', [$pn->idpengadaan]);
+        if ($pg->status === 'T') {
+            return back()->with('err', 'Pengadaan sudah tuntas');
+        }
+
+        $input = collect($r->input('jumlah', []))
+            ->map(fn ($v) => (int) $v)
+            ->filter(fn ($v) => $v > 0);
+
+        if ($input->isEmpty()) {
+            return back()->with('err', 'Isi minimal satu jumlah barang yang diterima');
+        }
+
+        // jumlah terima tidak boleh melebihi sisa pesanan
+        $sisa = collect(DB::select('SELECT idbarang, nama, sisa FROM v_pengadaan_sisa WHERE idpengadaan = ?', [$pn->idpengadaan]))
+            ->keyBy('idbarang');
+
+        foreach ($input as $idbarang => $jumlah) {
+            if (!isset($sisa[$idbarang])) {
+                return back()->with('err', "Barang $idbarang tidak ada di pengadaan ini");
+            }
+            if ($jumlah > $sisa[$idbarang]->sisa) {
+                return back()->with('err', "Jumlah {$sisa[$idbarang]->nama} melebihi sisa pesanan ({$sisa[$idbarang]->sisa})");
+            }
+        }
+
+        // trigger mengisi kartu stok dan mengubah status jadi TUNTAS bila semua sudah diterima
+        try {
+            DB::transaction(function () use ($input, $id) {
+                foreach ($input as $idbarang => $jumlah) {
+                    DB::statement('CALL sp_tambah_detail_penerimaan(?, ?, ?)', [$id, $idbarang, $jumlah]);
+                }
+            });
+        } catch (QueryException $e) {
+            return back()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan penerimaan');
+        }
+
+        return redirect()->route('penerimaan.show', $id)->with('ok', 'Penerimaan disimpan');
+    }
+}
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\PengadaanController.php =====
+<?php
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+class PengadaanController extends Controller
+{
+    public function index()
+    {
+        return view('pengadaan.index', [
+            'data' => DB::select('SELECT * FROM v_pengadaan ORDER BY idpengadaan DESC'),
+        ]);
+    }
+
+    // langkah 1: pilih vendor
+    public function create()
+    {
+        return view('pengadaan.create', [
+            'vendor' => DB::select("SELECT idvendor, nama_vendor FROM vendor WHERE status = 'A' ORDER BY nama_vendor"),
+        ]);
+    }
+
+    // tombol Next: SP membuat kepala pengadaan memakai user yang sedang login
+    public function store(Request $r)
+    {
+        $r->validate([
+            'idvendor' => ['required', 'integer', Rule::exists('vendor', 'idvendor')->where('status', 'A')],
+        ]);
+
+        try {
+            DB::statement('CALL sp_tambah_pengadaan(?, ?, @id)', [session('iduser'), $r->idvendor]);
+            $id = DB::selectOne('SELECT @id AS id')->id;
+        } catch (QueryException $e) {
+            return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menyimpan data');
+        }
+
+        return redirect()->route('pengadaan.show', $id);
+    }
+
+    // langkah 2: detail pengadaan
+    public function show($id)
+    {
+        $p = DB::selectOne('SELECT * FROM v_pengadaan WHERE idpengadaan = ?', [$id]);
+        abort_if(!$p, 404);
+
+        return view('pengadaan.show', [
+            'p'      => $p,
+            'detail' => DB::select('SELECT * FROM v_detail_pengadaan WHERE idpengadaan = ?', [$id]),
+            // harga yang tampil = harga terakhir beli barang itu dari vendor ini
+            'barang' => DB::select(
+                'SELECT b.idbarang, b.nama, s.nama_satuan, fn_harga_beli_terakhir(?, b.idbarang) AS harga
+                 FROM barang b JOIN satuan s ON b.idsatuan = s.idsatuan
+                 WHERE b.status = 1 ORDER BY b.nama',
+                [$p->idvendor]
+            ),
+        ]);
+    }
+
+    public function tambahDetail(Request $r, $id)
+    {
+        $p = DB::selectOne('SELECT status FROM v_pengadaan WHERE idpengadaan = ?', [$id]);
+        abort_if(!$p, 404);
+
+        if ($p->status === 'T') {
+            return back()->with('err', 'Pengadaan sudah tuntas, tidak bisa menambah barang');
+        }
+
+        $r->validate([
+            'idbarang' => ['required', 'integer', Rule::exists('barang', 'idbarang')->where('status', 1)],
+            'jumlah'   => 'required|integer|min:1',
+        ]);
+
+        try {
+            DB::statement('CALL sp_tambah_detail_pengadaan(?, ?, ?)', [$id, $r->idbarang, $r->jumlah]);
+        } catch (QueryException $e) {
+            return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menambah barang');
+        }
+
+        return redirect()->route('pengadaan.show', $id)->with('ok', 'Barang ditambahkan');
+    }
+}
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\PenjualanController.php =====
+<?php
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+
+class PenjualanController extends Controller
+{
+    public function index()
+    {
+        return view('penjualan.index', [
+            'data'   => DB::select('SELECT * FROM v_penjualan ORDER BY idpenjualan DESC'),
+            'margin' => DB::selectOne('SELECT persen FROM margin_penjualan WHERE status = 1'),
+        ]);
+    }
+
+    // nota baru (memakai margin yang sedang aktif dan user yang login), lanjut ke detail
+    public function store()
+    {
+        if (!DB::selectOne('SELECT 1 AS ok FROM margin_penjualan WHERE status = 1')) {
+            return back()->with('err', 'Belum ada margin yang aktif. Aktifkan satu margin dulu.');
+        }
+
+        try {
+            DB::statement('CALL sp_tambah_penjualan(?, @id)', [session('iduser')]);
+            $id = DB::selectOne('SELECT @id AS id')->id;
+        } catch (QueryException $e) {
+            return back()->with('err', $e->errorInfo[2] ?? 'Gagal membuat penjualan');
+        }
+
+        return redirect()->route('penjualan.show', $id);
+    }
+
+    public function show($id)
+    {
+        $p = DB::selectOne('SELECT * FROM v_penjualan WHERE idpenjualan = ?', [$id]);
+        abort_if(!$p, 404);
+
+        return view('penjualan.show', [
+            'p'      => $p,
+            'detail' => DB::select('SELECT * FROM v_detail_penjualan WHERE idpenjualan = ?', [$id]),
+            'barang' => DB::select('SELECT * FROM v_barang_stok WHERE stok > 0 ORDER BY nama'),
+        ]);
+    }
+
+    public function tambahDetail(Request $r, $id)
+    {
+        abort_if(!DB::selectOne('SELECT 1 AS ok FROM penjualan WHERE idpenjualan = ?', [$id]), 404);
+
+        $r->validate([
+            'idbarang' => 'required|integer',
+            'jumlah'   => 'required|integer|min:1',
+        ]);
+
+        // stok dicek di sini karena SP dan trigger tidak memvalidasi
+        $b = DB::selectOne('SELECT nama, stok FROM v_barang_stok WHERE idbarang = ?', [$r->idbarang]);
+        if (!$b) {
+            return back()->withInput()->with('err', 'Barang tidak ditemukan atau tidak aktif');
+        }
+        if ($r->jumlah > $b->stok) {
+            return back()->withInput()->with('err', "Stok {$b->nama} tidak cukup (tersedia {$b->stok})");
+        }
+
+        try {
+            DB::statement('CALL sp_tambah_detail_penjualan(?, ?, ?)', [$id, $r->idbarang, $r->jumlah]);
+        } catch (QueryException $e) {
+            return back()->withInput()->with('err', $e->errorInfo[2] ?? 'Gagal menambah barang');
+        }
+
+        return redirect()->route('penjualan.show', $id)->with('ok', 'Barang ditambahkan');
     }
 }
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Controllers\RingkasanController.php =====
@@ -204,9 +652,16 @@ class RingkasanController extends Controller
 {
     public function index()
     {
+        $stok = DB::table('v_stok_barang')->orderBy('stok')->orderBy('nama')->get();
+
         return view('ringkasan.index', [
-            'perSatuan'  => DB::table('v_ringkasan_satuan')->get(),
-            'diAtasRata' => DB::table('v_barang_di_atas_rata')->get(),
+            'stok'                => $stok,
+            'jmlHabis'            => $stok->where('status_stok', 'HABIS')->count(),
+            'jmlMenipis'          => $stok->where('status_stok', 'MENIPIS')->count(),
+            'pesanan'             => DB::table('v_pesanan_pending')->orderBy('idpengadaan')->orderBy('nama_barang')->get(),
+            'jmlPengadaanPending' => DB::table('pengadaan')->where('status', 'P')->count(),
+            'harian'              => DB::table('v_transaksi_harian')->orderByDesc('tanggal')->limit(7)->get(),
+            'hariIni'             => DB::table('v_transaksi_harian')->whereRaw('tanggal = CURDATE()')->first(),
         ]);
     }
 }
@@ -422,7 +877,53 @@ class VendorController extends Controller
         }
     }
 }
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Middleware\CekLogin.php =====
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class CekLogin
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  Closure(Request): (Response)  $next
+     */
+    public function handle(Request $request, Closure $next): Response
+    {
+        return $next($request);
+    }
+}
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\app\Http\Middleware\CekRole.php =====
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class CekRole
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  Closure(Request): (Response)  $next
+     */
+    public function handle(Request $request, Closure $next): Response
+    {
+        return $next($request);
+    }
+}
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\layout.blade.php =====
+@php
+  $role  = (int) session('idrole');
+  $boleh = fn(array $r) => in_array($role, $r);
+@endphp
 <!DOCTYPE html>
 <html>
 <head>
@@ -433,21 +934,43 @@ class VendorController extends Controller
   <nav class="navbar navbar-expand navbar-dark bg-dark mb-4">
     <div class="container">
       <span class="navbar-brand">Gudang Bahan Bangunan</span>
-      <div class="navbar-nav">
-        <a class="nav-link" href="{{ route('satuan.index') }}">Satuan</a>
-        {{-- tambah link menu baru di sini setiap selesai satu CRUD --}}
-        <a class="nav-link" href="{{ route('role.index') }}">Role</a>
-        <a class="nav-link" href="{{ route('barang.index') }}">Barang</a>
-        <a class="nav-link" href="{{ route('user.index') }}">User</a>
-        <a class="nav-link" href="{{ route('margin.index') }}">Margin</a>
-        <a class="nav-link" href="{{ route('ringkasan.index') }}">Ringkasan</a>
-        <a class="nav-link" href="{{ route('vendor.index') }}">Vendor</a>
+      @if(session('iduser'))
+      <div class="navbar-nav me-auto">
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('satuan.index') }}">Satuan</a> @endif
+        @if($boleh([1]))       <a class="nav-link" href="{{ route('role.index') }}">Role</a> @endif
+        @if($boleh([1,2,3,4])) <a class="nav-link" href="{{ route('barang.index') }}">Barang</a> @endif
+        @if($boleh([1]))       <a class="nav-link" href="{{ route('user.index') }}">User</a> @endif
+        @if($boleh([1]))       <a class="nav-link" href="{{ route('margin.index') }}">Margin</a> @endif
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('vendor.index') }}">Vendor</a> @endif
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('pengadaan.index') }}">Pengadaan</a> @endif
+        @if($boleh([1,2,3]))   <a class="nav-link" href="{{ route('penerimaan.index') }}">Penerimaan</a> @endif
+        @if($boleh([1,4]))     <a class="nav-link" href="{{ route('penjualan.index') }}">Penjualan</a> @endif
+        @if($boleh([1,2]))     <a class="nav-link" href="{{ route('kartustok.index') }}">Kartu Stok</a> @endif
+        @if($boleh([1,2]))     <a class="nav-link" href="{{ route('ringkasan.index') }}">Ringkasan</a> @endif
       </div>
+      <div class="d-flex align-items-center">
+        <span class="navbar-text me-3">{{ session('username') }} ({{ session('nama_role') }})</span>
+        <form action="{{ route('logout') }}" method="POST">
+          @csrf
+          <button class="btn btn-sm btn-outline-light">Keluar</button>
+        </form>
+      </div>
+      @else
+      <div class="navbar-nav ms-auto">
+        <a class="nav-link" href="{{ route('login') }}">Login</a>
+        <a class="nav-link" href="{{ route('register') }}">Daftar</a>
+      </div>
+      @endif
     </div>
   </nav>
   <div class="container">
     @if(session('ok')) <div class="alert alert-success">{{ session('ok') }}</div> @endif
     @if(session('err')) <div class="alert alert-danger">{{ session('err') }}</div> @endif
+    @if($errors->any())
+      <div class="alert alert-danger">
+        <ul class="mb-0">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
+      </div>
+    @endif
     @yield('content')
   </div>
 </body>
@@ -676,6 +1199,64 @@ class VendorController extends Controller
         @endif
     </body>
 </html>
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\auth\login.blade.php =====
+@extends('layout')
+
+@section('content')
+<div class="row justify-content-center">
+  <div class="col-md-4">
+    <h4 class="mb-3">Login</h4>
+    <form action="{{ route('login.proses') }}" method="POST">
+      @csrf
+      <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input type="text" name="username" class="form-control" value="{{ old('username') }}" autofocus>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control">
+      </div>
+      <button class="btn btn-primary w-100">Masuk</button>
+    </form>
+    <p class="mt-3 text-center">Belum punya akun? <a href="{{ route('register') }}">Daftar</a></p>
+  </div>
+</div>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\auth\register.blade.php =====
+@extends('layout')
+
+@section('content')
+<div class="row justify-content-center">
+  <div class="col-md-4">
+    <h4 class="mb-3">Registrasi</h4>
+    <form action="{{ route('register.proses') }}" method="POST">
+      @csrf
+      <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input type="text" name="username" class="form-control" value="{{ old('username') }}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Ulangi Password</label>
+        <input type="password" name="password_confirmation" class="form-control">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Daftar sebagai</label>
+        <select name="idrole" class="form-select">
+          @foreach($role as $r)
+            <option value="{{ $r->idrole }}" @selected(old('idrole') == $r->idrole)>{{ $r->nama_role }}</option>
+          @endforeach
+        </select>
+      </div>
+      <button class="btn btn-primary w-100">Daftar</button>
+    </form>
+    <p class="mt-3 text-center">Sudah punya akun? <a href="{{ route('login') }}">Login</a></p>
+  </div>
+</div>
+@endsection
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\barang\create.blade.php =====
 @extends('layout')
 
@@ -705,9 +1286,12 @@ class VendorController extends Controller
 @extends('layout')
 
 @section('content')
+@php $kelola = in_array((int) session('idrole'), [1,2]); @endphp
 <div class="d-flex justify-content-between mb-3">
   <h4>Data Barang</h4>
-  <a href="{{ route('barang.create') }}" class="btn btn-primary">+ Tambah</a>
+  @if($kelola)
+    <a href="{{ route('barang.create') }}" class="btn btn-primary">+ Tambah</a>
+  @endif
 </div>
 
 <div class="mb-2">
@@ -730,7 +1314,7 @@ class VendorController extends Controller
     <th>Harga + Margin</th>
     <th>Harga + Margin + PPN</th>
     <th>Status</th>
-    <th width="150">Aksi</th>
+    @if($kelola) <th width="150">Aksi</th> @endif
   </tr>
   @foreach($data as $d)
   <tr>
@@ -742,6 +1326,7 @@ class VendorController extends Controller
     <td>Rp {{ number_format($d->harga_jual, 0, ',', '.') }}</td>
     <td>Rp {{ number_format($d->harga_jual_ppn, 0, ',', '.') }}</td>
     <td>{{ $d->status_text }}</td>
+    @if($kelola)
     <td>
       <a href="{{ route('barang.edit', $d->idbarang) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('barang.destroy', $d->idbarang) }}" method="POST" class="d-inline"
@@ -751,6 +1336,7 @@ class VendorController extends Controller
         <button class="btn btn-sm btn-danger">Hapus</button>
       </form>
     </td>
+    @endif
   </tr>
   @endforeach
 </table>
@@ -800,6 +1386,68 @@ class VendorController extends Controller
   </select>
   @error('status') <small class="text-danger">{{ $message }}</small> @enderror
 </div>
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\errors\403.blade.php =====
+@extends('layout')
+
+@section('content')
+<div class="text-center mt-5">
+  <h1 class="display-4">403</h1>
+  <p class="lead">{{ $exception->getMessage() ?: 'Anda tidak punya akses ke halaman ini' }}</p>
+  <a href="{{ url('/') }}" class="btn btn-primary">Kembali</a>
+</div>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\kartustok\index.blade.php =====
+@extends('layout')
+
+@section('content')
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Kartu Stok</h4>
+  <form method="GET" action="{{ route('kartustok.index') }}" class="d-flex gap-2">
+    <select name="idbarang" class="form-select">
+      <option value="">-- semua barang --</option>
+      @foreach($barang as $b)
+        <option value="{{ $b->idbarang }}" @selected($idbarang == $b->idbarang)>{{ $b->nama }}</option>
+      @endforeach
+    </select>
+    <button class="btn btn-primary">Tampilkan</button>
+  </form>
+</div>
+
+<table class="table table-bordered bg-white">
+  <tr>
+    <th>ID</th>
+    <th>Tanggal</th>
+    <th>Barang</th>
+    <th>Transaksi</th>
+    <th>No. Transaksi</th>
+    <th>Masuk</th>
+    <th>Keluar</th>
+    <th>Stok</th>
+  </tr>
+  @forelse($data as $d)
+  <tr>
+    <td>{{ $d->idkartu_stok }}</td>
+    <td>{{ $d->tanggal }}</td>
+    <td>{{ $d->nama }}</td>
+    <td>{{ $d->nama_transaksi }}</td>
+    <td>
+      @if($d->jenis_transaksi == 'P')
+        <a href="{{ route('penerimaan.show', $d->idtransaksi) }}">#{{ $d->idtransaksi }}</a>
+      @elseif($d->jenis_transaksi == 'J' && in_array((int) session('idrole'), [1,4]))
+        <a href="{{ route('penjualan.show', $d->idtransaksi) }}">#{{ $d->idtransaksi }}</a>
+      @else
+        #{{ $d->idtransaksi }}
+      @endif
+    </td>
+    <td>{{ $d->masuk }}</td>
+    <td>{{ $d->keluar }}</td>
+    <td><b>{{ $d->stok }}</b></td>
+  </tr>
+  @empty
+  <tr><td colspan="8" class="text-center text-muted">Belum ada riwayat stok</td></tr>
+  @endforelse
+</table>
+@endsection
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\margin\create.blade.php =====
 @extends('layout')
 @section('content')
@@ -839,7 +1487,7 @@ class VendorController extends Controller
     <th>Dibuat Oleh</th>
     <th>Dibuat</th>
     <th>Diubah</th>
-    <th width="150">Aksi</th>
+    <th width="230">Aksi</th>
   </tr>
   @foreach($data as $d)
   <tr>
@@ -850,6 +1498,12 @@ class VendorController extends Controller
     <td>{{ $d->created_at }}</td>
     <td>{{ $d->updated_at }}</td>
     <td>
+      @if($d->status_angka != 1)
+      <form action="{{ route('margin.aktif', $d->idmargin_penjualan) }}" method="POST" class="d-inline">
+        @csrf
+        <button class="btn btn-sm btn-success">Aktifkan</button>
+      </form>
+      @endif
       <a href="{{ route('margin.edit', $d->idmargin_penjualan) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('margin.destroy', $d->idmargin_penjualan) }}" method="POST" class="d-inline"
             onsubmit="return confirm('Hapus data ini?')">
@@ -870,15 +1524,6 @@ class VendorController extends Controller
   @error('persen') <small class="text-danger">{{ $message }}</small> @enderror
 </div>
 <div class="mb-3">
-  <label class="form-label">User</label>
-  <select name="iduser" class="form-select">
-    @foreach($user as $u)
-      <option value="{{ $u->iduser }}" @selected(old('iduser', $row->iduser ?? '') == $u->iduser)>{{ $u->username }}</option>
-    @endforeach
-  </select>
-  @error('iduser') <small class="text-danger">{{ $message }}</small> @enderror
-</div>
-<div class="mb-3">
   <label class="form-label">Status</label>
   <select name="status" class="form-select">
     <option value="1" @selected(old('status', $row->status ?? 1) == 1)>Aktif</option>
@@ -886,44 +1531,376 @@ class VendorController extends Controller
   </select>
   <small class="text-muted">Kalau diset Aktif, margin lain otomatis jadi Nonaktif.</small>
 </div>
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\penerimaan\create.blade.php =====
+@extends('layout')
+@section('content')
+<h4>Penerimaan Baru - Langkah 1: Pilih Pengadaan (yang masih pending)</h4>
+<form action="{{ route('penerimaan.store') }}" method="POST">
+  @csrf
+  <div class="mb-3">
+    <label class="form-label">Pengadaan</label>
+    <select name="idpengadaan" class="form-select" required>
+      <option value="">-- pilih pengadaan --</option>
+      @foreach($pengadaan as $p)
+        <option value="{{ $p->idpengadaan }}" @selected(old('idpengadaan') == $p->idpengadaan)>
+          #{{ $p->idpengadaan }} - {{ $p->nama_vendor }} - Rp {{ number_format($p->total_nilai, 0, ',', '.') }}
+        </option>
+      @endforeach
+    </select>
+  </div>
+  <button class="btn btn-primary">Next &rarr;</button>
+  <a href="{{ route('penerimaan.index') }}" class="btn btn-secondary">Batal</a>
+</form>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\penerimaan\index.blade.php =====
+@extends('layout')
+@section('content')
+<div class="d-flex justify-content-between mb-3">
+  <h4>Data Penerimaan</h4>
+  @if(in_array((int) session('idrole'), [1,2]))
+    <a href="{{ route('penerimaan.create') }}" class="btn btn-primary">+ Penerimaan Baru</a>
+  @endif
+</div>
+
+<table class="table table-bordered bg-white">
+  <tr>
+    <th>ID</th><th>Tanggal</th><th>Pengadaan</th><th>Vendor</th><th>User</th><th>Status</th><th width="100">Aksi</th>
+  </tr>
+  @forelse($data as $d)
+  <tr>
+    <td>{{ $d->idpenerimaan }}</td>
+    <td>{{ $d->tanggal }}</td>
+    <td>#{{ $d->idpengadaan }}</td>
+    <td>{{ $d->nama_vendor }}</td>
+    <td>{{ $d->username }}</td>
+    <td><span class="badge {{ $d->status == 'T' ? 'bg-success' : 'bg-warning text-dark' }}">{{ $d->status_text }}</span></td>
+    <td><a href="{{ route('penerimaan.show', $d->idpenerimaan) }}" class="btn btn-sm btn-info">Detail</a></td>
+  </tr>
+  @empty
+  <tr><td colspan="7" class="text-center text-muted">Belum ada penerimaan</td></tr>
+  @endforelse
+</table>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\penerimaan\show.blade.php =====
+@extends('layout')
+@section('content')
+@php $bisaTerima = in_array((int) session('idrole'), [1,2]); @endphp
+<h4>Penerimaan #{{ $pn->idpenerimaan }} - Langkah 2: Detail Penerimaan</h4>
+<p>
+  Pengadaan: <b>#{{ $pn->idpengadaan }}</b> | Vendor: <b>{{ $pn->nama_vendor }}</b> | User: {{ $pn->username }} |
+  Status: <span class="badge {{ $pengadaan->status == 'T' ? 'bg-success' : 'bg-warning text-dark' }}">{{ $pengadaan->status_text }}</span>
+</p>
+
+<h6>Pesanan vs Diterima (selisih = sisa)</h6>
+<form action="{{ route('penerimaan.detail', $pn->idpenerimaan) }}" method="POST">
+  @csrf
+  <table class="table table-bordered bg-white">
+    <tr>
+      <th>Barang</th><th>Satuan</th><th>Dipesan</th><th>Sudah Diterima</th><th>Sisa</th>
+      @if($bisaTerima) <th width="170">Terima Sekarang</th> @endif
+    </tr>
+    @foreach($sisa as $s)
+    <tr class="{{ $s->sisa == 0 ? 'table-success' : '' }}">
+      <td>{{ $s->nama }}</td>
+      <td>{{ $s->nama_satuan }}</td>
+      <td>{{ $s->dipesan }}</td>
+      <td>{{ $s->diterima }}</td>
+      <td>{{ $s->sisa }}</td>
+      @if($bisaTerima)
+      <td>
+        @if($s->sisa > 0 && $pengadaan->status == 'P')
+          <input type="number" name="jumlah[{{ $s->idbarang }}]" min="0" max="{{ $s->sisa }}" value="0" class="form-control form-control-sm">
+        @else
+          <span class="text-muted">-</span>
+        @endif
+      </td>
+      @endif
+    </tr>
+    @endforeach
+  </table>
+  @if($bisaTerima && $pengadaan->status == 'P')
+    <button class="btn btn-primary">Simpan Penerimaan</button>
+  @endif
+  <a href="{{ route('penerimaan.index') }}" class="btn btn-secondary">Selesai</a>
+</form>
+
+<h6 class="mt-4">Barang diterima pada penerimaan ini</h6>
+<table class="table table-bordered bg-white">
+  <tr><th>Barang</th><th>Satuan</th><th>Jumlah</th><th>Harga</th><th>Sub Total</th></tr>
+  @forelse($detail as $d)
+  <tr>
+    <td>{{ $d->nama }}</td>
+    <td>{{ $d->nama_satuan }}</td>
+    <td>{{ $d->jumlah_terima }}</td>
+    <td>Rp {{ number_format($d->harga_satuan_terima, 0, ',', '.') }}</td>
+    <td>Rp {{ number_format($d->sub_total_terima, 0, ',', '.') }}</td>
+  </tr>
+  @empty
+  <tr><td colspan="5" class="text-center text-muted">Belum ada barang diterima</td></tr>
+  @endforelse
+</table>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\pengadaan\create.blade.php =====
+@extends('layout')
+@section('content')
+<h4>Pengadaan Baru - Langkah 1: Pilih Vendor</h4>
+<form action="{{ route('pengadaan.store') }}" method="POST">
+  @csrf
+  <div class="mb-3">
+    <label class="form-label">Vendor</label>
+    <select name="idvendor" class="form-select" required>
+      <option value="">-- pilih vendor --</option>
+      @foreach($vendor as $v)
+        <option value="{{ $v->idvendor }}" @selected(old('idvendor') == $v->idvendor)>{{ $v->nama_vendor }}</option>
+      @endforeach
+    </select>
+  </div>
+  <button class="btn btn-primary">Next &rarr;</button>
+  <a href="{{ route('pengadaan.index') }}" class="btn btn-secondary">Batal</a>
+</form>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\pengadaan\index.blade.php =====
+@extends('layout')
+@section('content')
+<div class="d-flex justify-content-between mb-3">
+  <h4>Data Pengadaan</h4>
+  @if(in_array((int) session('idrole'), [1,3]))
+    <a href="{{ route('pengadaan.create') }}" class="btn btn-primary">+ Pengadaan Baru</a>
+  @endif
+</div>
+
+<table class="table table-bordered bg-white">
+  <tr>
+    <th>ID</th><th>Tanggal</th><th>Vendor</th><th>User</th><th>Status</th><th>Total</th><th width="100">Aksi</th>
+  </tr>
+  @forelse($data as $d)
+  <tr>
+    <td>{{ $d->idpengadaan }}</td>
+    <td>{{ $d->tanggal }}</td>
+    <td>{{ $d->nama_vendor }}</td>
+    <td>{{ $d->username }}</td>
+    <td><span class="badge {{ $d->status == 'T' ? 'bg-success' : 'bg-warning text-dark' }}">{{ $d->status_text }}</span></td>
+    <td>Rp {{ number_format($d->total_nilai, 0, ',', '.') }}</td>
+    <td><a href="{{ route('pengadaan.show', $d->idpengadaan) }}" class="btn btn-sm btn-info">Detail</a></td>
+  </tr>
+  @empty
+  <tr><td colspan="7" class="text-center text-muted">Belum ada pengadaan</td></tr>
+  @endforelse
+</table>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\pengadaan\show.blade.php =====
+@extends('layout')
+@section('content')
+<h4>Pengadaan #{{ $p->idpengadaan }} - Langkah 2: Detail Barang</h4>
+<p>
+  Vendor: <b>{{ $p->nama_vendor }}</b> | User: {{ $p->username }} | Tanggal: {{ $p->tanggal }} |
+  Status: <span class="badge {{ $p->status == 'T' ? 'bg-success' : 'bg-warning text-dark' }}">{{ $p->status_text }}</span>
+</p>
+
+@if($p->status == 'P' && in_array((int) session('idrole'), [1,3]))
+<form action="{{ route('pengadaan.detail', $p->idpengadaan) }}" method="POST" class="row g-2 mb-3">
+  @csrf
+  <div class="col-md-6">
+    <select name="idbarang" class="form-select" required>
+      <option value="">-- pilih barang --</option>
+      @foreach($barang as $b)
+        <option value="{{ $b->idbarang }}">{{ $b->nama }} ({{ $b->nama_satuan }}) - Rp {{ number_format($b->harga, 0, ',', '.') }}</option>
+      @endforeach
+    </select>
+  </div>
+  <div class="col-md-3"><input type="number" name="jumlah" min="1" class="form-control" placeholder="Jumlah" required></div>
+  <div class="col-md-3"><button class="btn btn-primary w-100">Tambah Barang</button></div>
+</form>
+@endif
+
+<table class="table table-bordered bg-white">
+  <tr><th>Barang</th><th>Satuan</th><th>Harga</th><th>Jumlah</th><th>Sub Total</th></tr>
+  @forelse($detail as $d)
+  <tr>
+    <td>{{ $d->nama }}</td>
+    <td>{{ $d->nama_satuan }}</td>
+    <td>Rp {{ number_format($d->harga_satuan, 0, ',', '.') }}</td>
+    <td>{{ $d->jumlah }}</td>
+    <td>Rp {{ number_format($d->sub_total, 0, ',', '.') }}</td>
+  </tr>
+  @empty
+  <tr><td colspan="5" class="text-center text-muted">Belum ada barang</td></tr>
+  @endforelse
+  <tr><th colspan="4" class="text-end">Subtotal</th><th>Rp {{ number_format($p->subtotal_nilai, 0, ',', '.') }}</th></tr>
+  <tr><th colspan="4" class="text-end">PPN 10%</th><th>Rp {{ number_format($p->ppn, 0, ',', '.') }}</th></tr>
+  <tr><th colspan="4" class="text-end">Total</th><th>Rp {{ number_format($p->total_nilai, 0, ',', '.') }}</th></tr>
+</table>
+<a href="{{ route('pengadaan.index') }}" class="btn btn-secondary">Selesai</a>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\penjualan\index.blade.php =====
+@extends('layout')
+@section('content')
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Data Penjualan</h4>
+  <form action="{{ route('penjualan.store') }}" method="POST">
+    @csrf
+    <button class="btn btn-primary">+ Penjualan Baru</button>
+  </form>
+</div>
+<p class="text-muted">Margin aktif: <b>{{ $margin ? $margin->persen . '%' : 'belum ada' }}</b></p>
+
+<table class="table table-bordered bg-white">
+  <tr><th>ID</th><th>Tanggal</th><th>Kasir</th><th>Margin</th><th>Total</th><th width="100">Aksi</th></tr>
+  @forelse($data as $d)
+  <tr>
+    <td>{{ $d->idpenjualan }}</td>
+    <td>{{ $d->tanggal }}</td>
+    <td>{{ $d->username }}</td>
+    <td>{{ $d->margin_persen }}%</td>
+    <td>Rp {{ number_format($d->total_nilai, 0, ',', '.') }}</td>
+    <td><a href="{{ route('penjualan.show', $d->idpenjualan) }}" class="btn btn-sm btn-info">Detail</a></td>
+  </tr>
+  @empty
+  <tr><td colspan="6" class="text-center text-muted">Belum ada penjualan</td></tr>
+  @endforelse
+</table>
+@endsection
+===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\penjualan\show.blade.php =====
+@extends('layout')
+@section('content')
+<h4>Penjualan #{{ $p->idpenjualan }}</h4>
+<p>Kasir: <b>{{ $p->username }}</b> | Margin: <b>{{ $p->margin_persen }}%</b> | Tanggal: {{ $p->tanggal }}</p>
+
+<form action="{{ route('penjualan.detail', $p->idpenjualan) }}" method="POST" class="row g-2 mb-3">
+  @csrf
+  <div class="col-md-6">
+    <select name="idbarang" class="form-select" required>
+      <option value="">-- pilih barang --</option>
+      @foreach($barang as $b)
+        <option value="{{ $b->idbarang }}">{{ $b->nama }} ({{ $b->nama_satuan }}) - stok {{ $b->stok }} - Rp {{ number_format($b->harga_jual, 0, ',', '.') }}</option>
+      @endforeach
+    </select>
+  </div>
+  <div class="col-md-3"><input type="number" name="jumlah" min="1" class="form-control" placeholder="Jumlah" required></div>
+  <div class="col-md-3"><button class="btn btn-primary w-100">Tambah Barang</button></div>
+</form>
+
+<table class="table table-bordered bg-white">
+  <tr><th>Barang</th><th>Satuan</th><th>Harga</th><th>Jumlah</th><th>Sub Total</th></tr>
+  @forelse($detail as $d)
+  <tr>
+    <td>{{ $d->nama }}</td>
+    <td>{{ $d->nama_satuan }}</td>
+    <td>Rp {{ number_format($d->harga_satuan, 0, ',', '.') }}</td>
+    <td>{{ $d->jumlah }}</td>
+    <td>Rp {{ number_format($d->subtotal, 0, ',', '.') }}</td>
+  </tr>
+  @empty
+  <tr><td colspan="5" class="text-center text-muted">Belum ada barang</td></tr>
+  @endforelse
+  <tr><th colspan="4" class="text-end">Subtotal</th><th>Rp {{ number_format($p->subtotal_nilai, 0, ',', '.') }}</th></tr>
+  <tr><th colspan="4" class="text-end">PPN 10%</th><th>Rp {{ number_format($p->ppn, 0, ',', '.') }}</th></tr>
+  <tr><th colspan="4" class="text-end">Total</th><th>Rp {{ number_format($p->total_nilai, 0, ',', '.') }}</th></tr>
+</table>
+<a href="{{ route('penjualan.index') }}" class="btn btn-secondary">Selesai</a>
+@endsection
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\ringkasan\index.blade.php =====
 @extends('layout')
 
 @section('content')
-<h4 class="mb-3">Ringkasan Barang per Satuan</h4>
+{{-- KARTU RINGKAS --}}
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card border-danger"><div class="card-body">
+      <div class="text-muted">Barang Habis</div>
+      <h3 class="text-danger mb-0">{{ $jmlHabis }}</h3>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-warning"><div class="card-body">
+      <div class="text-muted">Stok Menipis (&le; 10)</div>
+      <h3 class="text-warning mb-0">{{ $jmlMenipis }}</h3>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-primary"><div class="card-body">
+      <div class="text-muted">Pengadaan Pending</div>
+      <h3 class="text-primary mb-0">{{ $jmlPengadaanPending }}</h3>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-success"><div class="card-body">
+      <div class="text-muted">Penjualan Hari Ini</div>
+      <h3 class="text-success mb-0">Rp {{ number_format($hariIni->nilai_penjualan ?? 0, 0, ',', '.') }}</h3>
+    </div></div>
+  </div>
+</div>
+
+{{-- 1. PANTAU STOK --}}
+<h4 class="mb-3">Pantau Stok Barang</h4>
 <table class="table table-bordered bg-white mb-5">
   <tr>
-    <th>Satuan</th>
-    <th>Jumlah Barang</th>
-    <th>Harga Min</th>
-    <th>Harga Max</th>
-    <th>Harga Rata-rata</th>
+    <th>ID</th><th>Barang</th><th>Stok Aktual</th><th>Akan Masuk</th><th>Harga Jual</th><th>Keterangan</th>
   </tr>
-  @foreach($perSatuan as $d)
+  @foreach($stok as $d)
   <tr>
-    <td>{{ $d->nama_satuan }}</td>
-    <td>{{ $d->jumlah_barang }}</td>
-    <td>{{ $d->harga_min ? 'Rp '.number_format($d->harga_min, 0, ',', '.') : '-' }}</td>
-    <td>{{ $d->harga_max ? 'Rp '.number_format($d->harga_max, 0, ',', '.') : '-' }}</td>
-    <td>{{ $d->harga_rata ? 'Rp '.number_format($d->harga_rata, 0, ',', '.') : '-' }}</td>
+    <td>{{ $d->idbarang }}</td>
+    <td>{{ $d->nama }}</td>
+    <td><b>{{ $d->stok }}</b> {{ $d->nama_satuan }}</td>
+    <td>
+      @if($d->sisa_pesanan > 0)
+        <span class="text-primary">+{{ $d->sisa_pesanan }} {{ $d->nama_satuan }}</span>
+      @else
+        <span class="text-muted">-</span>
+      @endif
+    </td>
+    <td>Rp {{ number_format($d->harga_jual, 0, ',', '.') }}</td>
+    <td>
+      <span class="badge {{ $d->status_stok == 'HABIS' ? 'bg-danger' : ($d->status_stok == 'MENIPIS' ? 'bg-warning text-dark' : 'bg-success') }}">
+        {{ $d->keterangan }}
+      </span>
+    </td>
   </tr>
   @endforeach
 </table>
 
-<h4 class="mb-3">Barang dengan Harga di Atas Rata-rata</h4>
+{{-- 2. PESANAN PENGADAAN --}}
+<h4 class="mb-3">Pesanan Pengadaan yang Belum Diterima</h4>
+<table class="table table-bordered bg-white mb-5">
+  <tr>
+    <th>Pengadaan</th><th>Tanggal</th><th>Vendor</th><th>Barang</th><th>Dipesan</th><th>Diterima</th><th>Sisa</th>
+  </tr>
+  @forelse($pesanan as $d)
+  <tr>
+    <td><a href="{{ route('pengadaan.show', $d->idpengadaan) }}">#{{ $d->idpengadaan }}</a></td>
+    <td>{{ $d->tanggal }}</td>
+    <td>{{ $d->nama_vendor }}</td>
+    <td>{{ $d->nama_barang }} ({{ $d->nama_satuan }})</td>
+    <td>{{ $d->dipesan }}</td>
+    <td>{{ $d->diterima }}</td>
+    <td><b>{{ $d->sisa }}</b></td>
+  </tr>
+  @empty
+  <tr><td colspan="7" class="text-center text-muted">Tidak ada pesanan yang menunggu</td></tr>
+  @endforelse
+</table>
+
+{{-- 3. TRANSAKSI HARIAN --}}
+<h4 class="mb-3">Transaksi Harian (7 hari terakhir)</h4>
 <table class="table table-bordered bg-white">
   <tr>
-    <th>ID</th>
-    <th>Nama Barang</th>
-    <th>Harga</th>
+    <th>Tanggal</th>
+    <th>Pengadaan</th><th>Nilai Pengadaan</th>
+    <th>Penerimaan</th>
+    <th>Penjualan</th><th>Nilai Penjualan</th>
   </tr>
-  @foreach($diAtasRata as $d)
+  @forelse($harian as $d)
   <tr>
-    <td>{{ $d->idbarang }}</td>
-    <td>{{ $d->nama }}</td>
-    <td>Rp {{ number_format($d->harga, 0, ',', '.') }}</td>
+    <td>{{ $d->tanggal }}</td>
+    <td>{{ $d->jml_pengadaan }}</td>
+    <td>Rp {{ number_format($d->nilai_pengadaan, 0, ',', '.') }}</td>
+    <td>{{ $d->jml_penerimaan }}</td>
+    <td>{{ $d->jml_penjualan }}</td>
+    <td>Rp {{ number_format($d->nilai_penjualan, 0, ',', '.') }}</td>
   </tr>
-  @endforeach
+  @empty
+  <tr><td colspan="6" class="text-center text-muted">Belum ada transaksi</td></tr>
+  @endforelse
 </table>
 @endsection
 ===== C:\laragon\www\PBD_UTS\gudang-bangunan\resources\views\role\create.blade.php =====
@@ -1015,9 +1992,12 @@ class VendorController extends Controller
 @extends('layout')
 
 @section('content')
+@php $kelola = in_array((int) session('idrole'), [1,2]); @endphp
 <div class="d-flex justify-content-between mb-3">
   <h4>Data Satuan</h4>
-  <a href="{{ route('satuan.create') }}" class="btn btn-primary">+ Tambah</a>
+  @if($kelola)
+    <a href="{{ route('satuan.create') }}" class="btn btn-primary">+ Tambah</a>
+  @endif
 </div>
 
 <table class="table table-bordered bg-white">
@@ -1026,7 +2006,7 @@ class VendorController extends Controller
     <th>Nama Satuan</th>
     <th>Jumlah Barang</th>
     <th>Status</th>
-    <th width="150">Aksi</th>
+    @if($kelola) <th width="150">Aksi</th> @endif
   </tr>
   @foreach($data as $d)
   <tr>
@@ -1034,6 +2014,7 @@ class VendorController extends Controller
     <td>{{ $d->nama_satuan }}</td>
     <td>{{ $d->jumlah_barang }}</td>
     <td>{{ $d->status_text }}</td>
+    @if($kelola)
     <td>
       <a href="{{ route('satuan.edit', $d->idsatuan) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('satuan.destroy', $d->idsatuan) }}" method="POST" class="d-inline"
@@ -1043,6 +2024,7 @@ class VendorController extends Controller
         <button class="btn btn-sm btn-danger">Hapus</button>
       </form>
     </td>
+    @endif
   </tr>
   @endforeach
 </table>
@@ -1168,9 +2150,12 @@ class VendorController extends Controller
 @extends('layout')
 
 @section('content')
+@php $kelola = in_array((int) session('idrole'), [1,3]); @endphp
 <div class="d-flex justify-content-between mb-3">
   <h4>Data Vendor</h4>
-  <a href="{{ route('vendor.create') }}" class="btn btn-primary">+ Tambah</a>
+  @if($kelola)
+    <a href="{{ route('vendor.create') }}" class="btn btn-primary">+ Tambah</a>
+  @endif
 </div>
 
 <table class="table table-bordered bg-white">
@@ -1179,7 +2164,7 @@ class VendorController extends Controller
     <th>Nama Vendor</th>
     <th>Badan Hukum</th>
     <th>Status</th>
-    <th width="150">Aksi</th>
+    @if($kelola) <th width="150">Aksi</th> @endif
   </tr>
   @foreach($data as $d)
   <tr>
@@ -1187,6 +2172,7 @@ class VendorController extends Controller
     <td>{{ $d->nama_vendor }}</td>
     <td>{{ $d->badan_hukum_text }}</td>
     <td>{{ $d->status_text }}</td>
+    @if($kelola)
     <td>
       <a href="{{ route('vendor.edit', $d->idvendor) }}" class="btn btn-sm btn-warning">Edit</a>
       <form action="{{ route('vendor.destroy', $d->idvendor) }}" method="POST" class="d-inline"
@@ -1196,6 +2182,7 @@ class VendorController extends Controller
         <button class="btn btn-sm btn-danger">Hapus</button>
       </form>
     </td>
+    @endif
   </tr>
   @endforeach
 </table>
